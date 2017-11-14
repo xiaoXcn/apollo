@@ -18,6 +18,8 @@ import com.ctrip.framework.apollo.portal.spi.defaultimpl.DefaultUserInfoHolder;
 import com.ctrip.framework.apollo.portal.spi.defaultimpl.DefaultUserService;
 import com.ctrip.framework.apollo.portal.spi.springsecurity.SpringSecurityUserInfoHolder;
 import com.ctrip.framework.apollo.portal.spi.springsecurity.SpringSecurityUserService;
+import com.ctrip.framework.apollo.portal.spi.um.UmAuthenticationProvider;
+import com.ctrip.framework.apollo.portal.spi.um.UmUserService;
 
 import org.apache.tomcat.jdbc.pool.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -256,12 +258,96 @@ public class AuthConfiguration {
     }
 
   }
+  
+  /**
+   * um profile
+   */
+  @Configuration
+  @Profile("um")
+  static class UmSpringSecurityAuthAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean(SsoHeartbeatHandler.class)
+    public SsoHeartbeatHandler defaultSsoHeartbeatHandler() {
+      return new DefaultSsoHeartbeatHandler();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(UserInfoHolder.class)
+    public UserInfoHolder springSecurityUserInfoHolder() {
+      return new SpringSecurityUserInfoHolder();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(LogoutHandler.class)
+    public LogoutHandler logoutHandler() {
+      return new DefaultLogoutHandler();
+    }
+
+    /*@Bean
+    public JdbcUserDetailsManager JdbcUserDetailsManager(AuthenticationManagerBuilder auth, DataSource datasource) throws Exception {
+      JdbcUserDetailsManager jdbcUserDetailsManager = auth.jdbcAuthentication().passwordEncoder(new BCryptPasswordEncoder()).dataSource(datasource)
+          .usersByUsernameQuery("select Username,Password,Enabled from `Users` where Username = ?")
+          .authoritiesByUsernameQuery("select Username,Authority from `Authorities` where Username = ?")
+          .getUserDetailsService();
+
+      jdbcUserDetailsManager.setUserExistsSql("select Username from `Users` where Username = ?");
+      jdbcUserDetailsManager.setCreateUserSql("insert into `Users` (Username, Password, Enabled) values (?,?,?)");
+      jdbcUserDetailsManager.setUpdateUserSql("update `Users` set Password = ?, Enabled = ? where Username = ?");
+      jdbcUserDetailsManager.setDeleteUserSql("delete from `Users` where Username = ?");
+      jdbcUserDetailsManager.setCreateAuthoritySql("insert into `Authorities` (Username, Authority) values (?,?)");
+      jdbcUserDetailsManager.setDeleteUserAuthoritiesSql("delete from `Authorities` where Username = ?");
+      jdbcUserDetailsManager.setChangePasswordSql("update `Users` set Password = ? where Username = ?");
+
+      return jdbcUserDetailsManager;
+    }*/
+
+    @Bean
+    @ConditionalOnMissingBean(UserService.class)
+    public UserService springSecurityUserService() {
+      return new UmUserService();
+    }
+
+  }
+  
+  @Order(98)
+  @Profile("um")
+  @Configuration
+  @EnableWebSecurity
+  @EnableGlobalMethodSecurity(prePostEnabled = true)
+  static class UmSpringSecurityConfigurer extends WebSecurityConfigurerAdapter {
+
+    public static final String USER_ROLE = "user";
+    
+    @Autowired
+    private UmAuthenticationProvider umProvider;
+    
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+      http.csrf().disable();
+      http.headers().frameOptions().sameOrigin();
+      http.authorizeRequests().antMatchers("/openapi/**", "/vendor/**", "/styles/**", "/scripts/**", "/views/**", "/img/**").permitAll()
+      .antMatchers("/**").authenticated();
+      /*.antMatchers("/**").hasAnyRole(USER_ROLE);*/
+      http.formLogin().loginPage("/signin").permitAll().failureUrl("/signin?#/error").and().httpBasic();
+      http.logout().invalidateHttpSession(true).clearAuthentication(true).logoutSuccessUrl("/signin?#/logout");
+      http.exceptionHandling().authenticationEntryPoint(new LoginUrlAuthenticationEntryPoint("/signin"));
+    }
+    
+    @Autowired
+    public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
+      auth.authenticationProvider(umProvider);
+    }
+
+
+  }
 
   /**
    * default profile
    */
   @Configuration
-  @ConditionalOnMissingProfile({"ctrip", "auth"})
+  @ConditionalOnMissingProfile({"ctrip", "auth", "um"})
   static class DefaultAuthAutoConfiguration {
 
     @Bean
